@@ -1,0 +1,103 @@
+#!/usr/bin/env perl
+use strict;
+use Getopt::Std;
+
+my $usage = <<__;
+usage: gib [-l#[-#]][-n#][-s#][-p]
+       -l Length of each line
+       -n Number of lines
+       -p Add punctuation
+       -s Random seed
+__
+
+my $uc_pct = 8;
+my $punc_pct = 12;
+my $tpunc_pct = 6;
+
+sub main {
+    my %opt;
+    die $usage if not getopts('l:n:ps:', \%opt);
+    srand($opt{s} ? $opt{s} : time());
+
+    my %gib;
+    if ($opt{l} =~ /(\d+)-(\d+)/) {
+        $gib{min_len} = $1;
+        $gib{max_len} = $2;
+    } elsif ($opt{l} =~ /(\d+)/) {
+        $gib{min_len} = $gib{max_len} = $1;
+    } else {
+        $gib{min_len} = $gib{max_len} = 60;
+    }
+    $gib{count} = ($opt{n} or 240);
+    $gib{punc} = $opt{p};
+    $gib{sos} = 1;
+
+    for (my $i = 0; $i < $gib{count}; ++$i) {
+        print_line(\%gib);
+    }
+    return 1;
+}
+
+sub print_line {
+    my ($gib) = @_;
+    my $line_len = $gib->{min_len} + int(rand($gib->{max_len}-$gib->{min_len}+1));
+    my $line = '';
+    while (length($line) < $line_len) {
+        my $word = word();
+        $word = ucfirst($word) if $gib->{sos} or pct($uc_pct);
+        last if length($line) + length($word) > $line_len;
+        $gib->{sos} = 0;
+        if ($gib->{punc}) {
+            if (pct($punc_pct)) {
+                my @tpunc = ('.','.','.','.','.','.','.','.','?','?','!');
+                $word .= rand_list(\@tpunc);
+                $gib->{sos} = 1;
+            } elsif (pct($tpunc_pct)) {
+                my @punc = (',',',',',',',',';');
+                $word .= rand_list(\@punc);
+            }
+        }
+        $line .= $word . ' ';
+    }
+    print "$line\n";
+}
+
+sub word {
+    my $syls = 1 + int(rand(2));
+    my $word = '';
+    while ($syls-- > 0) {
+        $word .= syl();
+    }
+    return $word;
+}
+
+sub syl {
+    my $syl = int(rand(1)) ? Cs().V() : Cs().V().Ce();
+    return $syl;
+}
+
+sub Cs {
+    my @L = ( 'b','b','ch','d','d','f','f','g','f','h','j','k','k','l','l','m','m','n','n','p','p','r','r','s','s','sc','sh','sk','sl','sm','sn','sp','st','st','t','t','v','z' );
+    return rand_list(\@L);
+}
+sub Ce {
+    my @L = ( 'd','d','g','k','k','m','m','n','n','p','p','r','s','s','sh','sk','st','st','t','t','v','z' );
+    return rand_list(\@L);
+}
+sub V {
+    my @L = ( 'a','a','ai','e','e','ee','ei','i','i','ie','io','o','o','oi','oo','oo','ou','u','u' );
+    return rand_list(\@L);
+}
+
+sub rand_list {
+    my ($list) = @_;
+    my $n = int(rand(scalar @$list));
+    return ${$list}[$n];
+}
+
+sub pct {
+    my ($pct) = @_;
+    return (rand(100) < $pct);
+}
+
+exit (main() ? 0 : 1);
