@@ -2,94 +2,143 @@
 use strict;
 use Getopt::Std;
 
-my $usage = <<__;
-usage: gib [-l#[-#]][-n#][-s#][-p]
-       -l Length of each line
-       -n Number of lines
-       -p Add punctuation
-       -s Random seed
-__
+# Produce gibberish.
 
-my $uc_pct = 8;
-my $punc_pct = 12;
-my $tpunc_pct = 6;
+my $usage = <<__;
+usage: gib [-flags]
+       -c Char-list onset consonants
+       -C Char-list coda consonants
+       -f Percent terminal punctuation
+       -F Percent nonterminal punctuation
+       -l Length of each line (single number or min-max)
+       -n Number of lines
+       -o Percent open syllables
+       -p Append punctuation
+       -P Char-list nonterminal punctuation
+       -s Random seed
+       -T Char-list terminal punctuation
+       -v Char-list vowels
+       -u Percent uppercase words
+       -2 Percent 2-syllable words
+       -3 Percent 3-syllable words
+
+Char-list parameter is string of chars or clusters joined by "+".
+For example, sibilant consonants might be "ss+hzz+h".
+__
 
 sub main {
     my %opt;
-    die $usage if not getopts('l:n:ps:', \%opt);
+    die $usage if not getopts('c:C:f:F:l:n:o:pP:s:T:v:u:2:3:', \%opt);
     srand($opt{s} ? $opt{s} : time());
-
-    my %gib;
-    if ($opt{l} =~ /(\d+)-(\d+)/) {
-        $gib{min_len} = $1;
-        $gib{max_len} = $2;
-    } elsif ($opt{l} =~ /(\d+)/) {
-        $gib{min_len} = $gib{max_len} = $1;
-    } else {
-        $gib{min_len} = $gib{max_len} = 60;
-    }
-    $gib{count} = ($opt{n} or 240);
-    $gib{punc} = $opt{p};
-    $gib{sos} = 1;
-
-    for (my $i = 0; $i < $gib{count}; ++$i) {
-        print_line(\%gib);
+    my $lines = ($opt{n} or 240);
+    my $gib = new_gib(\%opt);
+    for (my $line = 0; $line < $lines; ++$line) {
+        print_line($gib);
     }
     return 1;
 }
 
+sub new_gib {
+    my ($opt) = @_;
+
+    # Defaults
+    my $uc_pct    = 3;
+    my $punc_pct  = 12;
+    my $tpunc_pct = 6;
+    my $open_pct  = 65;
+    my $Cs = "bbc+hddffgfhjkkllmmnnpprrsss+cs+hs+ks+ls+ms+ns+ps+ts+ts+t+rttvz";
+    my $Ce = "ddgkkmmnnpprsss+hs+ks+ts+tttvz";
+    my $V  = "aaa+ieee+ee+iiii+ei+oooo+io+oo+uuu";
+    my $P  = ",,,,;";
+    my $Pt = "........??!";
+
+    my %gib = (
+        'Cs' => char_list($$opt{c} or $Cs),
+        'Ce' => char_list($$opt{C} or $Ce),
+        'V' => char_list($$opt{v} or $V),
+        'P' => char_list($$opt{P} or $P),
+        'Pt' => char_list($$opt{T} or $Pt),
+        'uc_pct' => ($$opt{u} or $uc_pct),
+        'punc_pct' => ($$opt{f} or $punc_pct),
+        'tpunc_pct' => ($$opt{F} or $tpunc_pct),
+        'open_pct' => ($$opt{o} or $open_pct),
+        'syl2_pct' => ($$opt{2} or 45),
+        'syl3_pct' => ($$opt{3} or 5),
+        'punc' => $$opt{p},
+    );
+    $gib{sos} = $gib{punc};
+    if ($$opt{l} =~ /(\d+)-(\d+)/) {
+        $gib{min_len} = $1;
+        $gib{max_len} = $2;
+    } elsif ($$opt{l} =~ /(\d+)/) {
+        $gib{min_len} = $gib{max_len} = $1;
+    } else {
+        $gib{min_len} = $gib{max_len} = 64;
+    }
+    return \%gib;
+}
+
 sub print_line {
     my ($gib) = @_;
-    my $line_len = $gib->{min_len} + int(rand($gib->{max_len}-$gib->{min_len}+1));
-    my $line = '';
-    while (length($line) < $line_len) {
-        my $word = word();
-        $word = ucfirst($word) if $gib->{sos} or pct($uc_pct);
-        last if length($line) + length($word) > $line_len;
+    my $line_len = $gib->{min_len} + int(rand($gib->{max_len} - $gib->{min_len} + 1));
+    my $printed = 0;
+    for (;;) {
+        my $word = word($gib);
+        $word = ucfirst($word) if $gib->{sos} or ($gib->{punc} and pct($gib->{uc_pct}));
         $gib->{sos} = 0;
         if ($gib->{punc}) {
-            if (pct($punc_pct)) {
-                my @tpunc = ('.','.','.','.','.','.','.','.','?','?','!');
-                $word .= rand_list(\@tpunc);
+            if (pct($gib->{tpunc_pct})) {
+                $word .= RC($gib->{Pt});
                 $gib->{sos} = 1;
-            } elsif (pct($tpunc_pct)) {
-                my @punc = (',',',',',',',',';');
-                $word .= rand_list(\@punc);
+            } elsif (pct($gib->{punc_pct})) {
+                $word .= RC($gib->{P});
             }
         }
-        $line .= $word . ' ';
+        last if $printed + length($word) +1 > $line_len;
+        if ($printed > 0) {
+            print ' ';
+            $printed++;
+        }
+        print $word;
+        $printed += length $word;
     }
-    print "$line\n";
+    print "\n";
 }
 
 sub word {
-    my $syls = 1 + int(rand(2));
+    my ($gib) = @_;
+    my $p = int(rand(100));
+    my $syls = ($p < $gib->{syl3_pct}) ? 3 : ($p < $gib->{syl2_pct} + $gib->{syl3_pct}) ? 2 : 1;
     my $word = '';
     while ($syls-- > 0) {
-        $word .= syl();
+        $word .= syl($gib);
     }
     return $word;
 }
 
 sub syl {
-    my $syl = int(rand(1)) ? Cs().V() : Cs().V().Ce();
+    my ($gib) = @_;
+    my $syl = pct($gib->{open_pct}) ? 
+        RC($gib->{Cs}).RC($gib->{V}) :
+        RC($gib->{Cs}).RC($gib->{V}).RC($gib->{Ce});
     return $syl;
 }
 
-sub Cs {
-    my @L = ( 'b','b','ch','d','d','f','f','g','f','h','j','k','k','l','l','m','m','n','n','p','p','r','r','s','s','sc','sh','sk','sl','sm','sn','sp','st','st','t','t','v','z' );
-    return rand_list(\@L);
-}
-sub Ce {
-    my @L = ( 'd','d','g','k','k','m','m','n','n','p','p','r','s','s','sh','sk','st','st','t','t','v','z' );
-    return rand_list(\@L);
-}
-sub V {
-    my @L = ( 'a','a','ai','e','e','ee','ei','i','i','ie','io','o','o','oi','oo','oo','ou','u','u' );
-    return rand_list(\@L);
+sub char_list {
+    my ($cs) = @_;
+    my @chars = split //, $cs;
+    for (my $i = 0; $i < @chars; ++$i) {
+        my $ch = $chars[$i];
+        if ($ch eq '+') {
+            $chars[$i-1] .= $chars[$i+1];
+            splice @chars, $i, 2;
+            --$i;
+        }
+    }
+    return \@chars;
 }
 
-sub rand_list {
+sub RC {
     my ($list) = @_;
     my $n = int(rand(scalar @$list));
     return ${$list}[$n];
